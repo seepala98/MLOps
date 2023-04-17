@@ -30,6 +30,9 @@ docker run -p 80:5000 randomjokes:latest
 ```bash
 http://localhost
 ```
+Refresh the page to get a new joke
+
+<img src="img\Webpage_jokes.png" width=50% height=50%>
 
 ## Stop the container
 

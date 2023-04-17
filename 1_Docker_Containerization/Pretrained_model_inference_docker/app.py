@@ -1,45 +1,44 @@
-import argparse
-import json
-import numpy as np
 import timm
 import torch
 import urllib
-
 from PIL import Image
 from timm.data import resolve_data_config
 from timm.data.transforms_factory import create_transform
 
-parser = argparse.ArgumentParser(description='PyTorch ImageNet Inference')
-parser.add_argument("--model", metavar="model", default="resnet18", help = "model architecture")
-parser.add_argument("--image", metavar="image", help = "image url")
+import hydra 
+from omegaconf import DictConfig
 
-def app():
-    args = parser.parse_args()
-    model = timm.create_model(args.model, pretrained=True)
+@hydra.main(config_path="config", config_name="config")
+def app(cfg: DictConfig):
+    model = timm.create_model(cfg.model, pretrained=True)
     model.eval()
-
-    url, filename = (args.image, args.image.split("/")[-1])
-    urllib.request.urlretrieve(url, filename)
 
     config = resolve_data_config({}, model=model)
     transform = create_transform(**config)
-    image = Image.open(filename).convert('RGB')
-    image = transform(image)
-    image = image.unsqueeze(0)
+
+    url, filename = (cfg.filename, cfg.filename.split('/')[-1])
+    urllib.request.urlretrieve(url, filename)
+    img = Image.open(filename).convert('RGB')
+    tensor = transform(img).unsqueeze(0) # transform and add batch dimension
 
     with torch.no_grad():
-        output = model(image)
-    probabilities = torch.nn.functional.softmax(output, dim=1)
+        out = model(tensor)
+    probabilities = torch.nn.functional.softmax(out[0], dim=0)
     
+    # Get imagenet class mappings
     url, filename = ("https://raw.githubusercontent.com/pytorch/hub/master/imagenet_classes.txt", "imagenet_classes.txt")
     urllib.request.urlretrieve(url, filename)
-    with open(filename) as f:
-        classes = [line.strip() for line in f.readlines()]
+    with open("imagenet_classes.txt", "r") as f:
+        categories = [s.strip() for s in f.readlines()]
 
-    top_probably, top_k = torch.topk(probabilities, k=1)
-    for i in range(top_probably.size(0)):
-        output = {"predicted": classes[top_k[i]], "probability": top_probably[i].item()}
-        print(json.dumps(output))
+    # Print top categories per image
+    top1_prob, top1_catid = torch.topk(probabilities, 1)
 
-if __name__ == "__main__":
+    final_output = {}
+    for i in range(top1_prob.size(0)):
+        final_output.update({"prediction": categories[top1_catid[i]], "confidence": format(top1_prob[i].item(), '.2f')})
+    print(final_output)
+    return final_output
+
+if __name__ == '__main__':
     app()
